@@ -1,0 +1,11 @@
+[Unit]
+Description=readahead daemon to trace file read and adjust file read mode
+After=syslog.target
+
+[Service]
+EnvironmentFile=/etc/sysconfig/readahead_tune.conf
+ExecStart=/usr/sbin/readahead_tune -v
+Restart=on-abort
+
+[Install]
+WantedBy=multi-user.target
