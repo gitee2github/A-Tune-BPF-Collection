@@ -19,23 +19,6 @@
 char _license[] SEC("license") = "GPL";
 __u32 _version SEC("version") = 1;
 
-struct fs_file_read_ctx {
-	const unsigned char *name;
-	unsigned int f_mode;
-	unsigned int rsvd;
-	/* clear from f_mode */
-	unsigned int clr_f_mode;
-	/* set into f_mode */
-	unsigned int set_f_mode;
-	unsigned long key;
-	/* file size */
-	long long i_size;
-	/* previous page index */
-	long long prev_index;
-	/* current page index */
-	long long index;
-};
-
 struct fs_file_read_args {
     struct fs_file_read_ctx *ctx;
     int version;

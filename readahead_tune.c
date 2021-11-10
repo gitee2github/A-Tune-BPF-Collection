@@ -7,10 +7,13 @@
 #include <errno.h>
 #include <unistd.h>
 #include <argp.h>
+#include <signal.h>
 #include <bpf/libbpf.h>
 #include "readahead_tune.h"
 #include "common_helper.h"
 #include "readahead_tune.skel.h"
+
+#define DEFAULT_CONF "/etc/sysconfig/readahead_tune.conf"
 
 struct env_conf {
     const char *name;
@@ -25,10 +28,21 @@ const struct env_conf confs[CONF_NUM] = {
     {"upper-bound-percentage", DEFAULT_UPPER_BOUND}
 };
 
-static void parse_config_env(struct readahead_tune_bpf *skel)
+static void parse_config(struct readahead_tune_bpf *skel, const char *conf_fn)
 {
+	struct opt **opts = parse_init(SHASH);
+	if (!opts) {
+		log(LOG_ERR, "parse_init failed, all the option use default value\n");
+		goto use_default;
+	}
+	
+	if (parse_config_file(conf_fn, opts, SHASH)) {
+		log(LOG_ERR, "parse_config_file failed, all the option use default value\n");
+		goto use_default;
+	}
+
     for (int i = 0; i < CONF_NUM; i++) {
-        char *env_str = getenv(confs[i].name);
+        char *env_str = config_opt(opts, SHASH, confs[i].name);
         if (env_str && strlen(env_str)) {
             char *endptr;
             errno = 0;
@@ -39,7 +53,7 @@ static void parse_config_env(struct readahead_tune_bpf *skel)
                     || endptr == env_str
                     || *endptr != '\0'
                     || val < 0) {
-                log(LOG_ERR, "Invalid env %s, use default!\n", env_str);
+                log(LOG_ERR, "Option %s value is %s, use default!\n", confs[i].name, env_str);
                 skel->rodata->file_read_conf[i] = confs[i].default_val;
             } else {
                 skel->rodata->file_read_conf[i] = (unsigned long long)val;
@@ -63,15 +77,25 @@ static void parse_config_env(struct readahead_tune_bpf *skel)
         log(LOG_ERR, "total-read-threshold(%llu) is too large, use default\n", skel->rodata->file_read_conf[CONF_TOTAL_READ]);
         skel->rodata->file_read_conf[CONF_TOTAL_READ] = DEFAULT_TOTAL_READ;
     }
+	goto success_parse;
 
-    printf("All the file_read_conf finally set as following:\n");
+use_default:
+	for (int i = 0; i < CONF_NUM; i++) {
+		skel->rodata->file_read_conf[i] = confs[i].default_val;
+	}
+
+success_parse:
+	parse_fini(opts, SHASH);
+	printf("All the file_read_conf finally set as following:\n");
     for (int i = 0; i < CONF_NUM; i++)
         log(LOG_INFO, "Config %s = %llu\n", confs[i].name, skel->rodata->file_read_conf[i]);
 }
 
 bool verbose;
+const char * config_file = DEFAULT_CONF;
 static const struct argp_option opts[] = {
     { "verbose", 'v', NULL, 0, "Verbose debug output" },
+    { "config", 'c', "CONFIG_FILE", 0, "Config file to specify" },
     {},
 };
 
@@ -81,6 +105,9 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
     case 'v':
         verbose = true;
         break;
+	case 'c':
+		config_file = !arg ? DEFAULT_CONF : arg;
+		break;
     case ARGP_KEY_ARG:
         argp_usage(state);
         break;
@@ -97,10 +124,19 @@ static const struct argp argp = {
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-    if (level == LIBBPF_DEBUG && !verbose)
+    if (level == LIBBPF_DEBUG && !verbose) {
         return 0;
+	}
 	syslog(LOG_ERR, format, args);
 	return 0;
+}
+
+static volatile bool exiting = false;
+
+static void sig_handler(int sig)
+{
+	log(LOG_INFO, "Gracefully exit...\n");
+	exiting = true;
 }
 
 int main(int argc, char *argv[])
@@ -117,6 +153,8 @@ int main(int argc, char *argv[])
         return err;
     }
 
+	signal(SIGTERM, sig_handler);
+
     /* Set up libbpf errors and debug info callback */
     libbpf_set_print(libbpf_print_fn);
 
@@ -129,7 +167,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    parse_config_env(skel);
+    parse_config(skel, config_file);
 
     err = readahead_tune_bpf__load(skel);
     if (err) {
@@ -143,7 +181,8 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
-    pause();
+	while (!exiting)
+		pause();
 
 cleanup:
     readahead_tune_bpf__destroy(skel);

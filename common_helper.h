@@ -1,26 +1,23 @@
 #ifndef _COMMON_HELPER_H
 #define _COMMON_HELPER_H
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <syslog.h>
-#include <sys/time.h>
-#include <sys/resource.h>
 
+#define SHASH 11
 #define log(level, fmt, args...) do {	\
 	syslog(level, fmt, ##args);	\
 } while (0)
 
-static inline void bump_memlock_rlimit(void)
-{
-    struct rlimit rlim_new = {
-        .rlim_cur   = RLIM_INFINITY,
-        .rlim_max   = RLIM_INFINITY,
-    };
+struct opt {
+	struct opt *next;
+	char *name;
+	char *val;
+};
 
-    if (setrlimit(RLIMIT_MEMLOCK, &rlim_new)) {
-        fprintf(stderr, "Failed to increase RLIMIT_MEMLOCK limit!\n");
-        exit(1);
-    }
-}
+struct opt **parse_init(unsigned int size);
+void parse_fini(struct opt **opts, unsigned int size);
+int parse_config_file(const char *conf_fn, struct opt **opts, unsigned int size);
+char* config_opt(struct opt **opts, unsigned int size, const char *name);
+void bump_memlock_rlimit(void);
+
 #endif

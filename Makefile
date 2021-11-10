@@ -10,7 +10,6 @@ VMLINUX_HEADER ?= $(OUTPUT)/vmlinux.h
 BTF_PAHOLE_PROBE := $(shell $(READELF) -S $(VMLINUX) | grep .BTF 2>&1)
 INCLUDES := -I$(OUTPUT)
 CFLAGS := -g -Wall
-# ARM版本也需要验证下
 ARCH := $(shell uname -m | sed 's/x86_64/x86/')
 
 ifeq ($(BTF_PAHOLE_PROBE),)
@@ -69,6 +68,11 @@ $(OUTPUT)/%.skel.h: $(OUTPUT)/%.bpf.o | $(OUTPUT)
 	$(call msg,GEN-SKEL,$@)
 	$(Q)$(BPFTOOL) gen skeleton $< > $@
 
+# Build common-helper code
+$(OUTPUT)/common_helper.o: common_helper.c | $(OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) -c $(filter %.c,$^) -o $@
+
 # Build user-space code
 $(patsubst %,$(OUTPUT)/%.o,$(APPS)): %.o: %.skel.h
 
@@ -78,7 +82,7 @@ $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 
 # Build application binary
 # 动态链接的场景下尝试将-lelf和-lz去掉
-$(APPS): %: $(OUTPUT)/%.o | $(OUTPUT)
+$(APPS): %: $(OUTPUT)/%.o  $(OUTPUT)/common_helper.o | $(OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $^ -lbpf -lelf -lz -o $@
 

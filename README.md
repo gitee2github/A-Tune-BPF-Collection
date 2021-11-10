@@ -1,23 +1,38 @@
 # A-Tune-BPF-Collection
 
 #### 介绍
-A-Tune-BPF-Collection is BPF based tunning tools collection
+A-Tune-BPF-Collection是BPF工具集，这些BPF程序用以跟踪内核行为模式以实时细粒度地调整内核参数，达到提升系统性能的目标。
 
 #### 软件架构
-软件架构说明
+以`readahead_tune`为例来介绍A-Tune-BPF-Collection中的BPF程序。
 
+`readahead_tune`包含两部分：
+
+* BPF program(`readahead_tune.bpf`)：加载到内核的BPF program以跟踪ext4/xfs文件系统的文件读操作
+* BPF control program(`readahead_tune`)：读取配置文件，配置BPF program的参数，随即加载BPF program到内核
 
 #### 安装教程
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+通过rpm命令或者yum安装`A-Tune-BPF-Collection` rpm包：
+
+```
+# yum install A-Tune-BPF-Collection
+or
+# rpm -ivh A-Tune-BPF-Collection-{version}.x86_64.rpm
+```
 
 #### 使用说明
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+以`readahead_tune`为例介绍A-Tune-BPF-Collection中的BPF程序程序使用：
+
+1. （可选）默认配置文件会安装在`/etc/sysconfig/readahead_tune.conf`，也可以自己新建配置文件，通过`start_readahead_tune`命令`-c|--config`选项指令配置文件路径。若未指定配置文件，则会使用默认安装的配置文件。
+
+   ```
+   注意：仅支持通过完整路径名指定配置文件，相对路径会无法识别；配置文件中若存在不合法的选项配置或者配置选项缺失，都会使用该选项的默认配置值。
+   ```
+
+2. 通过`start_readahead_tune`命令启动/加载`readahead_tune.bpf` BPF Program。命令使用方法可以使用`start_readahead_tune -h|--help`帮助命令。
+3. 通过`stop_readahead_tune`命令停止/卸载`readahead_tune.bpf` BPF Program。
 
 #### 参与贡献
 
