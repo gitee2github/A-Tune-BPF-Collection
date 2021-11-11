@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <argp.h>
 #include <signal.h>
+#include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include "readahead_tune.h"
 #include "common_helper.h"
@@ -28,18 +29,19 @@ const struct env_conf confs[CONF_NUM] = {
     {"upper-bound-percentage", DEFAULT_UPPER_BOUND}
 };
 
-static void parse_config(struct readahead_tune_bpf *skel, const char *conf_fn)
+static int parse_config(unsigned int where, struct readahead_tune_bpf *skel, const char *conf_fn)
 {
-	struct opt **opts = parse_init(SHASH);
-	if (!opts) {
-		log(LOG_ERR, "parse_init failed, all the option use default value\n");
-		goto use_default;
-	}
-	
-	if (parse_config_file(conf_fn, opts, SHASH)) {
-		log(LOG_ERR, "parse_config_file failed, all the option use default value\n");
-		goto use_default;
-	}
+    unsigned long long parse_conf[CONF_NUM] = {0};
+    struct opt **opts = parse_init(SHASH);
+    if (!opts) {
+        log(where, LOG_ERR, "parse_init failed, all the option use default value\n");
+        goto use_default;
+    }
+
+    if (parse_config_file(where, conf_fn, opts, SHASH)) {
+        log(where, LOG_ERR, "parse_config_file failed, all the option use default value\n");
+        goto use_default;
+    }
 
     for (int i = 0; i < CONF_NUM; i++) {
         char *env_str = config_opt(opts, SHASH, confs[i].name);
@@ -53,48 +55,57 @@ static void parse_config(struct readahead_tune_bpf *skel, const char *conf_fn)
                     || endptr == env_str
                     || *endptr != '\0'
                     || val < 0) {
-                log(LOG_ERR, "Option %s value is %s, use default!\n", confs[i].name, env_str);
-                skel->rodata->file_read_conf[i] = confs[i].default_val;
+                log(where, LOG_ERR, "Option %s value is %s, use default!\n", confs[i].name, env_str);
+                parse_conf[i] = confs[i].default_val;
             } else {
-                skel->rodata->file_read_conf[i] = (unsigned long long)val;
+                parse_conf[i] = (unsigned long long)val;
             }
         } else {
-            skel->rodata->file_read_conf[i] = confs[i].default_val;
+            parse_conf[i] = confs[i].default_val;
         }
     }
 
-    if (skel->rodata->file_read_conf[CONF_LOWER_BOUND] >= skel->rodata->file_read_conf[CONF_UPPER_BOUND]
-            || skel->rodata->file_read_conf[CONF_LOWER_BOUND] <= ZERO_PERCENTAGE
-            || skel->rodata->file_read_conf[CONF_UPPER_BOUND] >= HUNDRED_PERCENTAGE) {
-        log(LOG_ERR, "lower-bound-percentage(%llu), upper-bound-percentage(%llu) is invalid, use default\n",
-                skel->rodata->file_read_conf[CONF_LOWER_BOUND], skel->rodata->file_read_conf[CONF_UPPER_BOUND]);
-        skel->rodata->file_read_conf[CONF_LOWER_BOUND] = DEFAULT_LOWER_BOUND;
-        skel->rodata->file_read_conf[CONF_UPPER_BOUND] = DEFAULT_UPPER_BOUND;
+    if (parse_conf[CONF_LOWER_BOUND] >= parse_conf[CONF_UPPER_BOUND]
+            || parse_conf[CONF_LOWER_BOUND] <= ZERO_PERCENTAGE
+            || parse_conf[CONF_UPPER_BOUND] >= HUNDRED_PERCENTAGE) {
+        log(where, LOG_ERR, "lower-bound-percentage(%llu), upper-bound-percentage(%llu) is invalid, use default\n",
+                parse_conf[CONF_LOWER_BOUND], parse_conf[CONF_UPPER_BOUND]);
+        parse_conf[CONF_LOWER_BOUND] = DEFAULT_LOWER_BOUND;
+        parse_conf[CONF_UPPER_BOUND] = DEFAULT_UPPER_BOUND;
     }
 
-    if (skel->rodata->file_read_conf[CONF_TOTAL_READ] * skel->rodata->file_read_conf[CONF_LOWER_BOUND] < skel->rodata->file_read_conf[CONF_TOTAL_READ]
-            || skel->rodata->file_read_conf[CONF_TOTAL_READ] * skel->rodata->file_read_conf[CONF_UPPER_BOUND] < skel->rodata->file_read_conf[CONF_TOTAL_READ]) {
-        log(LOG_ERR, "total-read-threshold(%llu) is too large, use default\n", skel->rodata->file_read_conf[CONF_TOTAL_READ]);
-        skel->rodata->file_read_conf[CONF_TOTAL_READ] = DEFAULT_TOTAL_READ;
+    if (parse_conf[CONF_TOTAL_READ] * parse_conf[CONF_LOWER_BOUND] < parse_conf[CONF_TOTAL_READ]
+            || parse_conf[CONF_TOTAL_READ] * parse_conf[CONF_UPPER_BOUND] < parse_conf[CONF_TOTAL_READ]) {
+        log(where, LOG_ERR, "total-read-threshold(%llu) is too large, use default\n", parse_conf[CONF_TOTAL_READ]);
+        parse_conf[CONF_TOTAL_READ] = DEFAULT_TOTAL_READ;
     }
-	goto success_parse;
+    goto success_parse;
 
 use_default:
-	for (int i = 0; i < CONF_NUM; i++) {
-		skel->rodata->file_read_conf[i] = confs[i].default_val;
-	}
+    for (int i = 0; i < CONF_NUM; i++) {
+        parse_conf[i] = confs[i].default_val;
+    }
 
 success_parse:
-	parse_fini(opts, SHASH);
-	printf("All the file_read_conf finally set as following:\n");
-    for (int i = 0; i < CONF_NUM; i++)
-        log(LOG_INFO, "Config %s = %llu\n", confs[i].name, skel->rodata->file_read_conf[i]);
+    parse_fini(opts, SHASH);
+    for (unsigned int i = 0; i < CONF_NUM; i++) {
+        if (bpf_map_update_elem(bpf_map__fd(skel->maps.arraymap), &i, parse_conf + i, BPF_ANY)) {
+            return -1;
+        }
+    }
+    log(where, LOG_INFO, "All the file_read_conf finally set as following:\n");
+    for (int i = 0; i < CONF_NUM; i++) {
+        log(where, LOG_INFO, "Config %s = %llu\n", confs[i].name, parse_conf[i]);
+    }
+    return 0;
 }
 
 bool verbose;
+bool foreground;
 const char * config_file = DEFAULT_CONF;
 static const struct argp_option opts[] = {
     { "verbose", 'v', NULL, 0, "Verbose debug output" },
+    { "foreground", 'f', NULL, 0, "Run foreground, not daemonize" },
     { "config", 'c', "CONFIG_FILE", 0, "Config file to specify" },
     {},
 };
@@ -105,9 +116,12 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
     case 'v':
         verbose = true;
         break;
-	case 'c':
-		config_file = !arg ? DEFAULT_CONF : arg;
-		break;
+    case 'f':
+        foreground = true;
+        break;
+    case 'c':
+        config_file = !arg ? DEFAULT_CONF : arg;
+        break;
     case ARGP_KEY_ARG:
         argp_usage(state);
         break;
@@ -124,65 +138,73 @@ static const struct argp argp = {
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-    if (level == LIBBPF_DEBUG && !verbose) {
+    if (level >= LIBBPF_DEBUG && !verbose) {
         return 0;
-	}
-	syslog(LOG_ERR, format, args);
-	return 0;
+    }
+    /* syslog output is Mojibake, and No log_buf to check kernel BPF verifier log */
+    if (foreground) {
+        return vfprintf(stderr, format, args);
+    }
+    syslog(LOG_ERR, format, args);
+    return 0;
 }
 
 static volatile bool exiting = false;
 
 static void sig_handler(int sig)
 {
-	log(LOG_INFO, "Gracefully exit...\n");
-	exiting = true;
+    log((foreground ? TERM : SYSLOG), LOG_INFO, "Gracefully exit...\n");
+    exiting = true;
 }
 
 int main(int argc, char *argv[])
 {
     struct readahead_tune_bpf *skel;
+    unsigned int where = TERM;
 
     int err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
-    if (err)
-        return err;
-
-    err = daemon(0, 0);
     if (err) {
-        perror("Failed to daemon\n");
         return err;
     }
 
-	signal(SIGTERM, sig_handler);
+    if (!foreground) {
+        err = daemon(0, 0);
+        where = SYSLOG;
+        if (err) {
+            perror("Failed to daemon\n");
+            return err;
+        }
+    }
+
+    signal(SIGTERM, sig_handler);
 
     /* Set up libbpf errors and debug info callback */
     libbpf_set_print(libbpf_print_fn);
 
     /* Bump RLIMIT_MEMLOCK to create BPF maps */
-    bump_memlock_rlimit();
+    bump_memlock_rlimit(where);
     
-    skel = readahead_tune_bpf__open();
+    skel = readahead_tune_bpf__open_and_load();
     if (!skel) {
-        log(LOG_ERR, "Failed to open BPF skeleton\n");
+        log(where, LOG_ERR, "Failed to open and load BPF skeleton\n");
         return -1;
     }
 
-    parse_config(skel, config_file);
-
-    err = readahead_tune_bpf__load(skel);
+    err = parse_config(where, skel, config_file);
     if (err) {
-        log(LOG_ERR, "Failed to load and verify BPF skeleton\n");
+        log(where, LOG_ERR, "Failed to write config value into BPF ARRAY MAP\n");
         goto cleanup;
     }
 
     err = readahead_tune_bpf__attach(skel);
     if (err) {
-        log(LOG_ERR, "Failed to attach BPF skeleton\n");
+        log(where, LOG_ERR, "Failed to attach BPF skeleton\n");
         goto cleanup;
     }
 
-	while (!exiting)
-		pause();
+    while (!exiting) {
+        pause();
+    }
 
 cleanup:
     readahead_tune_bpf__destroy(skel);

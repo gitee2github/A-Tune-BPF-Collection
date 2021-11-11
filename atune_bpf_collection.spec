@@ -7,7 +7,7 @@ URL:			https://gitee.com/openeuler/A-Tune-BPF-Collection
 Source0:		https://gitee.com/openeuler/A-Tune-BPF-Collection/repository/archive/v%{version}.tar.gz
 
 BuildRequires: clang, llvm, libbpf-devel
-Requires: libbpf, systemd
+Requires: libbpf
 Provides: readahead_tune
 
 %define  debug_package %{nil}
@@ -24,13 +24,15 @@ readahead_tune: trace file reading characteristics, then ajust file read mode to
 make %{?_smp_mflags}
 
 %install
+install -D -p -m 0755 readahead_tune %{buildroot}/%{_sbindir}/readahead_tune
+install -D -p -m 0755 start_readahead_tune %{buildroot}/%{_sbindir}/start_readahead_tune
+install -D -p -m 0755 stop_readahead_tune %{buildroot}/%{_sbindir}/stop_readahead_tune
 install -D -p -m 0644 readahead_tune.conf %{buildroot}%{_sysconfdir}/sysconfig/readahead_tune.conf
-install -D -p -m 0644 readahead_tune.service %{buildroot}/%{_unitdir}/readahead_tune.service
-install -D -p -m 0644 readahead_tune %{buildroot}/%{_sbindir}/readahead_tune
 
 %files
 %{_sbindir}/readahead_tune
-%{_unitdir}/*.service
+%{_sbindir}/start_readahead_tune
+%{_sbindir}/stop_readahead_tune
 %config(noreplace) %{_sysconfdir}/sysconfig/readahead_tune.conf
 
 %changelog

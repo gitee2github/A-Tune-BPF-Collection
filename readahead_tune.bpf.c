@@ -15,6 +15,7 @@
 
 #define PREFIX_PATTERN "blk_"
 #define MAX_HASH_TABLE_ENTRY 10000
+#define MAP_ARRAY_SIZE 10
 
 char _license[] SEC("license") = "GPL";
 __u32 _version SEC("version") = 1;
@@ -35,6 +36,13 @@ struct file_rd_hnode {
     __u64 tot_nr;
 };
 
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, u32);
+    __type(value, unsigned long long);
+    __uint(max_entries, MAP_ARRAY_SIZE);
+} arraymap SEC(".maps");
+
 struct bpf_map_def SEC("maps") htab = {
     .type = BPF_MAP_TYPE_HASH,
     .key_size = sizeof(long),
@@ -42,22 +50,28 @@ struct bpf_map_def SEC("maps") htab = {
     .max_entries = MAX_HASH_TABLE_ENTRY,
 };
 
-const volatile unsigned long long file_read_conf[CONF_NUM] = {
-    DEFAULT_FILESZ,
-    DEFAULT_READ_TIME,
-    DEFAULT_TOTAL_READ,
-    DEFAULT_LOWER_BOUND,
-    DEFAULT_UPPER_BOUND
-};
+/*
+ * This first paramater should be the exact position of variable, otherwise the start
+ * position of array, and then access the variable by array[index], BPF verifier will
+ * warn: "load bpf program failed: Permission denied ... variable stack access var_off"
+ */
+static __always_inline void get_conf(unsigned long long *file_read_conf, unsigned int index)
+{
+    const char conf_fmt[] = "option is %llu\n";
+    void *value = bpf_map_lookup_elem(&arraymap, &index);
+    if (value) {
+        *file_read_conf = *(unsigned long long *)value;
+    }
+    bpf_trace_printk(conf_fmt, sizeof(conf_fmt), *file_read_conf);
+}
 
 static __always_inline bool is_expected_file(void *name)
 {
     char prefix[5];
-    int err;
-
-    err = bpf_probe_read_str(&prefix, sizeof(prefix), name);
-    if (err <= 0)
+    int err = bpf_probe_read_str(&prefix, sizeof(prefix), name);
+    if (err <= 0) {
         return false;
+    }
     return !__builtin_memcmp(prefix, PREFIX_PATTERN, sizeof(PREFIX_PATTERN) - 1);
 }
 
@@ -66,9 +80,27 @@ int fs_file_read(struct fs_file_read_args *args)
 {
     const char fmt[] = "elapsed %llu, seq %u, tot %u\n";
     struct fs_file_read_ctx *rd_ctx = args->ctx;
+    unsigned long long file_read_conf[CONF_NUM] = {
+        DEFAULT_FILESZ,
+        DEFAULT_READ_TIME,
+        DEFAULT_TOTAL_READ,
+        DEFAULT_LOWER_BOUND,
+        DEFAULT_UPPER_BOUND
+    };
 
-    if (!is_expected_file((void *)rd_ctx->name))
+    if (!is_expected_file((void *)rd_ctx->name)) {
         return 0;
+    }
+
+    /*
+     * Get user configuration, 4.19 kernel does not support
+     * BPF program for-loop
+     */
+    get_conf(file_read_conf + CONF_FILESZ, CONF_FILESZ);
+    get_conf(file_read_conf + CONF_READ_TIME, CONF_READ_TIME);
+    get_conf(file_read_conf + CONF_TOTAL_READ, CONF_TOTAL_READ);
+    get_conf(file_read_conf + CONF_LOWER_BOUND, CONF_LOWER_BOUND);
+    get_conf(file_read_conf + CONF_UPPER_BOUND, CONF_UPPER_BOUND);
 
     if (rd_ctx->i_size <= file_read_conf[CONF_FILESZ]) {
         rd_ctx->set_f_mode = FMODE_WILLNEED;
@@ -89,8 +121,9 @@ int fs_file_read(struct fs_file_read_args *args)
 
     /* the consecutive read pos of the same file spatially local */
     if (rd_ctx->index >= rd_ctx->prev_index &&
-        rd_ctx->index - rd_ctx->prev_index <= 1)
+        rd_ctx->index - rd_ctx->prev_index <= 1) {
         hist->seq_nr += 1;
+    }
     hist->tot_nr += 1;
 
     bpf_trace_printk(fmt, sizeof(fmt), now - hist->last_nsec,
@@ -103,10 +136,11 @@ int fs_file_read(struct fs_file_read_args *args)
 
     if (now - hist->last_nsec >= file_read_conf[CONF_READ_TIME] || hist->tot_nr >= file_read_conf[CONF_TOTAL_READ]) {
         if (hist->tot_nr >= file_read_conf[CONF_TOTAL_READ]) {
-            if (hist->seq_nr <= hist->tot_nr * file_read_conf[CONF_LOWER_BOUND] / HUNDRED_PERCENTAGE)
+            if (hist->seq_nr <= hist->tot_nr * file_read_conf[CONF_LOWER_BOUND] / HUNDRED_PERCENTAGE) {
                 rd_ctx->set_f_mode = FMODE_RANDOM;
-            else if (hist->seq_nr >= hist->tot_nr * file_read_conf[CONF_UPPER_BOUND] / HUNDRED_PERCENTAGE)
+            } else if (hist->seq_nr >= hist->tot_nr * file_read_conf[CONF_UPPER_BOUND] / HUNDRED_PERCENTAGE) {
                 rd_ctx->clr_f_mode = FMODE_RANDOM;
+            }
         }
 
         hist->last_nsec = now;
@@ -121,11 +155,10 @@ SEC("raw_tracepoint/fs_file_release")
 int fs_file_release(struct fs_file_release_args *args)
 {
     __u64 key = (unsigned long)args->filp;
-    void *value;
-
-    value = bpf_map_lookup_elem(&htab, &key);
-    if (value)
+    void *value = bpf_map_lookup_elem(&htab, &key);
+    if (value) {
         bpf_map_delete_elem(&htab, &key);
+    }
 
     return 0;
 }
