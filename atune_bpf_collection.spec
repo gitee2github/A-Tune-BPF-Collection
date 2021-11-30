@@ -6,7 +6,7 @@ Summary:		BPF program collection to adjust fine-grained kernel mode to get bette
 URL:			https://gitee.com/openeuler/A-Tune-BPF-Collection
 Source0:		https://gitee.com/openeuler/A-Tune-BPF-Collection/repository/archive/v%{version}.tar.gz
 
-BuildRequires: clang, llvm, libbpf-devel
+BuildRequires: clang, llvm, libbpf-devel, bpftool, dwarves
 Requires: libbpf
 Provides: readahead_tune
 

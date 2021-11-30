@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 OUTPUT := .output
 CLANG ?= clang -v
-BPFTOOL ?= $(abspath tools/bpftool)
-PAHOLE ?= $(abspath tools/pahole)
+BPFTOOL ?= bpftool
+PAHOLE ?= pahole
 READELF ?= readelf
 VMLINUX ?= /usr/lib/debug/lib/modules/`uname -r`/vmlinux
 VMLINUX_HEADER ?= $(OUTPUT)/vmlinux.h
@@ -63,28 +63,22 @@ $(OUTPUT)/%.bpf.o: %.bpf.c $(wildcard %.h) | $(OUTPUT) $(VMLINUX_HEADER)
 	$(INCLUDES) $(CLANG_BPF_SYS_INCLUDES)	\
 	-g -O2 -target bpf -c $(filter %.c,$^) -o $@
 
-# Generate BPF skeletons
-$(OUTPUT)/%.skel.h: $(OUTPUT)/%.bpf.o | $(OUTPUT)
-	$(call msg,GEN-SKEL,$@)
-	$(Q)$(BPFTOOL) gen skeleton $< > $@
-
 # Build common-helper code
 $(OUTPUT)/common_helper.o: common_helper.c | $(OUTPUT)
 	$(call msg,CC,$@)
 	$(Q)$(CC) $(CFLAGS) -c $(filter %.c,$^) -o $@
 
 # Build user-space code
-$(patsubst %,$(OUTPUT)/%.o,$(APPS)): %.o: %.skel.h
+$(patsubst %,$(OUTPUT)/%.o,$(APPS)): %.o: %.bpf.o
 
 $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 	$(call msg,CC,$@)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $(filter %.c,$^) -o $@
 
 # Build application binary
-# 动态链接的场景下尝试将-lelf和-lz去掉
 $(APPS): %: $(OUTPUT)/%.o  $(OUTPUT)/common_helper.o | $(OUTPUT)
 	$(call msg,BINARY,$@)
-	$(Q)$(CC) $(CFLAGS) $^ -lbpf -lelf -lz -o $@
+	$(Q)$(CC) $(CFLAGS) $^ -lbpf -o $@
 
 # delete failed targets
 .DELETE_ON_ERROR:
