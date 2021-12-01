@@ -70,7 +70,7 @@ static __always_inline bool is_expected_file(void *name)
     char prefix[5];
     int err = bpf_probe_read_str(&prefix, sizeof(prefix), name);
     if (err <= 0) {
-        return false;
+        return 0;
     }
     return !__builtin_memcmp(prefix, PREFIX_PATTERN, sizeof(PREFIX_PATTERN) - 1);
 }
@@ -109,13 +109,13 @@ int fs_file_read(struct fs_file_read_args *args)
 
     __u64 now = bpf_ktime_get_ns();
     __u64 key = rd_ctx->key;
-    bool first = false;
+    bool first = 0;
     struct file_rd_hnode *hist = bpf_map_lookup_elem(&htab, &key);
     struct file_rd_hnode new_hist;
     if (!hist) {
         __builtin_memset(&new_hist, 0, sizeof(new_hist));
         new_hist.last_nsec = now;
-        first = true;
+        first = 1;
         hist = &new_hist;
     }
 

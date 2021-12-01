@@ -12,9 +12,10 @@
 #include <bpf/libbpf.h>
 #include "readahead_tune.h"
 #include "common_helper.h"
-#include "readahead_tune.skel.h"
 
 #define DEFAULT_CONF "/etc/sysconfig/readahead_tune.conf"
+#define READ_TP_NAME "fs_file_read"
+#define RELEASE_TP_NAME "fs_file_release"
 
 struct env_conf {
     const char *name;
@@ -29,7 +30,7 @@ const struct env_conf confs[CONF_NUM] = {
     {"upper-bound-percentage", DEFAULT_UPPER_BOUND}
 };
 
-static int parse_config(unsigned int where, struct readahead_tune_bpf *skel, const char *conf_fn)
+static int parse_config(unsigned int where, int conf_fd, const char *conf_fn)
 {
     unsigned long long parse_conf[CONF_NUM] = {0};
     struct opt **opts = parse_init(SHASH);
@@ -89,7 +90,7 @@ use_default:
 success_parse:
     parse_fini(opts, SHASH);
     for (unsigned int i = 0; i < CONF_NUM; i++) {
-        if (bpf_map_update_elem(bpf_map__fd(skel->maps.arraymap), &i, parse_conf + i, BPF_ANY)) {
+        if (bpf_map_update_elem(conf_fd, &i, parse_conf + i, BPF_ANY)) {
             return -1;
         }
     }
@@ -159,8 +160,10 @@ static void sig_handler(int sig)
 
 int main(int argc, char *argv[])
 {
-    struct readahead_tune_bpf *skel;
+    const char *file = ".output/readahead_tune.bpf.o";
+    struct bpf_object *obj = NULL;
     unsigned int where = TERM;
+    int prog_fd;
 
     int err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
     if (err) {
@@ -168,7 +171,8 @@ int main(int argc, char *argv[])
     }
 
     if (!foreground) {
-        err = daemon(0, 0);
+        /* file is relative path, nochdir can't be zero */
+        err = daemon(1, 0);
         where = SYSLOG;
         if (err) {
             perror("Failed to daemon\n");
@@ -183,30 +187,65 @@ int main(int argc, char *argv[])
 
     /* Bump RLIMIT_MEMLOCK to create BPF maps */
     bump_memlock_rlimit(where);
-    
-    skel = readahead_tune_bpf__open_and_load();
-    if (!skel) {
-        log(where, LOG_ERR, "Failed to open and load BPF skeleton\n");
-        return -1;
+
+    err = bpf_prog_load(file, BPF_PROG_TYPE_UNSPEC, &obj, &prog_fd);
+    if (err) {
+        log(where, LOG_ERR, "Failed to load BPF program\n");
+        return err;
     }
 
-    err = parse_config(where, skel, config_file);
+    int conf_fd = bpf_object__find_map_fd_by_name(obj, "arraymap");
+    if (conf_fd < 0) {
+        log(where, LOG_ERR, "Failed to get arraymap fd\n");
+        err = conf_fd;
+        goto cleanup;
+    }
+
+    err = parse_config(where, conf_fd, config_file);
     if (err) {
         log(where, LOG_ERR, "Failed to write config value into BPF ARRAY MAP\n");
         goto cleanup;
     }
 
-    err = readahead_tune_bpf__attach(skel);
-    if (err) {
-        log(where, LOG_ERR, "Failed to attach BPF skeleton\n");
+    const char *prog_name = "raw_tracepoint.w/" READ_TP_NAME;
+    struct bpf_program *prog = bpf_object__find_program_by_title(obj, prog_name);
+    if (!prog) {
+        log(where, LOG_ERR, "Failed to find program %s\n", prog_name);
+        err = -EINVAL;
         goto cleanup;
+    }
+
+    int read_fd = bpf_raw_tracepoint_open(READ_TP_NAME, bpf_program__fd(prog));
+    if (read_fd < 0) {
+        err = -errno;
+        log(where, LOG_ERR, "Failed to attach raw tracepoint %s\n", READ_TP_NAME);
+        goto cleanup;
+    }
+
+    prog_name = "raw_tracepoint/" RELEASE_TP_NAME;
+    prog = bpf_object__find_program_by_title(obj, prog_name);
+    if (!prog) {
+        log(where, LOG_ERR, "Failed to find program %s\n", prog_name);
+        err = -EINVAL;
+        goto close_read_fd;
+    }
+
+    int release_fd = bpf_raw_tracepoint_open(RELEASE_TP_NAME, bpf_program__fd(prog));
+    if (release_fd < 0) {
+        err = -errno;
+        log(where, LOG_ERR, "Failed to attach raw tracepoint %s\n", RELEASE_TP_NAME);
+        goto close_read_fd;
     }
 
     while (!exiting) {
         pause();
     }
 
+    close(release_fd);
+close_read_fd:
+    close(read_fd);
+
 cleanup:
-    readahead_tune_bpf__destroy(skel);
+    bpf_object__close(obj);
     return err;
 }
