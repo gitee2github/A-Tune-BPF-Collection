@@ -25,12 +25,14 @@ make %{?_smp_mflags}
 
 %install
 install -D -p -m 0755 readahead_tune %{buildroot}/%{_sbindir}/readahead_tune
+install -D -p -m 0644 readahead_tune.bpf.o %{buildroot}/%{_sbindir}/readahead_tune.bpf.o
 install -D -p -m 0755 start_readahead_tune %{buildroot}/%{_sbindir}/start_readahead_tune
 install -D -p -m 0755 stop_readahead_tune %{buildroot}/%{_sbindir}/stop_readahead_tune
 install -D -p -m 0644 readahead_tune.conf %{buildroot}%{_sysconfdir}/sysconfig/readahead_tune.conf
 
 %files
 %{_sbindir}/readahead_tune
+%{_sbindir}/readahead_tune.bpf.o
 %{_sbindir}/start_readahead_tune
 %{_sbindir}/stop_readahead_tune
 %config(noreplace) %{_sysconfdir}/sysconfig/readahead_tune.conf

@@ -42,7 +42,7 @@ debug: all
 .PHONY: clean
 clean:
 	$(call msg,CLEAN)
-	$(Q)rm -rf $(OUTPUT) $(APPS)
+	$(Q)rm -rf $(OUTPUT) $(APPS) $(patsubst %,%.bpf.o,$(APPS))
 
 $(OUTPUT):
 	$(call msg,MKDIR,$@)
@@ -62,6 +62,7 @@ $(OUTPUT)/%.bpf.o: %.bpf.c $(wildcard %.h) | $(OUTPUT) $(VMLINUX_HEADER)
 	$(DEBUG_FLAGS) \
 	$(INCLUDES) $(CLANG_BPF_SYS_INCLUDES)	\
 	-g -O2 -target bpf -c $(filter %.c,$^) -o $@
+	cp $@ $(abspath $(OUTPUT))/..
 
 # Build common-helper code
 $(OUTPUT)/common_helper.o: common_helper.c | $(OUTPUT)
