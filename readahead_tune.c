@@ -160,10 +160,10 @@ static void sig_handler(int sig)
 
 int main(int argc, char *argv[])
 {
-    const char *file = ".output/readahead_tune.bpf.o";
+    const char *file = "readahead_tune.bpf.o";
     struct bpf_object *obj = NULL;
     unsigned int where = TERM;
-    int prog_fd;
+    int prog_fd = -1;
 
     int err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
     if (err) {

@@ -14,11 +14,11 @@
 #define FMODE_WILLNEED 0x400000
 
 #define PREFIX_PATTERN "blk_"
-#define MAX_HASH_TABLE_ENTRY 10000
+#define MAX_HASH_TABLE_ENTRY 100000
 #define MAP_ARRAY_SIZE 10
 
-char _license[] SEC("license") = "GPL";
-__u32 _version SEC("version") = 1;
+char g_license[] SEC("license") = "GPL";
+__u32 g_version SEC("version") = 1;
 
 struct fs_file_read_args {
     struct fs_file_read_ctx *ctx;
@@ -62,7 +62,6 @@ static __always_inline void get_conf(unsigned long long *file_read_conf, unsigne
     if (value) {
         *file_read_conf = *(unsigned long long *)value;
     }
-    bpf_trace_printk(conf_fmt, sizeof(conf_fmt), *file_read_conf);
 }
 
 static __always_inline bool is_expected_file(void *name)
@@ -97,10 +96,6 @@ int fs_file_read(struct fs_file_read_args *args)
      * BPF program for-loop
      */
     get_conf(file_read_conf + CONF_FILESZ, CONF_FILESZ);
-    get_conf(file_read_conf + CONF_READ_TIME, CONF_READ_TIME);
-    get_conf(file_read_conf + CONF_TOTAL_READ, CONF_TOTAL_READ);
-    get_conf(file_read_conf + CONF_LOWER_BOUND, CONF_LOWER_BOUND);
-    get_conf(file_read_conf + CONF_UPPER_BOUND, CONF_UPPER_BOUND);
 
     if (rd_ctx->i_size <= file_read_conf[CONF_FILESZ]) {
         rd_ctx->set_f_mode = FMODE_WILLNEED;
@@ -126,13 +121,15 @@ int fs_file_read(struct fs_file_read_args *args)
     }
     hist->tot_nr += 1;
 
-    bpf_trace_printk(fmt, sizeof(fmt), now - hist->last_nsec,
-             hist->seq_nr, hist->tot_nr);
-
     if (first) {
         bpf_map_update_elem(&htab, &key, hist, 0);
         return 0;
     }
+
+    get_conf(file_read_conf + CONF_READ_TIME, CONF_READ_TIME);
+    get_conf(file_read_conf + CONF_TOTAL_READ, CONF_TOTAL_READ);
+    get_conf(file_read_conf + CONF_LOWER_BOUND, CONF_LOWER_BOUND);
+    get_conf(file_read_conf + CONF_UPPER_BOUND, CONF_UPPER_BOUND);
 
     if (now - hist->last_nsec >= file_read_conf[CONF_READ_TIME] || hist->tot_nr >= file_read_conf[CONF_TOTAL_READ]) {
         if (hist->tot_nr >= file_read_conf[CONF_TOTAL_READ]) {
