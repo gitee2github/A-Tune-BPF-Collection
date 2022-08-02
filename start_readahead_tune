@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# change working directory to current binary position
+cd "$(dirname "$0")"
+
 function usage()
 {
 	echo "Usage: $0 [ -h | --help] [ -c | --config CONFIG_FILE ]"
