@@ -43,12 +43,12 @@ struct {
     __uint(max_entries, MAP_ARRAY_SIZE);
 } arraymap SEC(".maps");
 
-struct bpf_map_def SEC("maps") htab = {
-    .type = BPF_MAP_TYPE_HASH,
-    .key_size = sizeof(long),
-    .value_size = sizeof(struct file_rd_hnode),
-    .max_entries = MAX_HASH_TABLE_ENTRY,
-};
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, u64);
+    __type(value, struct file_rd_hnode);
+    __uint(max_entries, MAX_HASH_TABLE_ENTRY);
+} htab SEC(".maps");
 
 /*
  * This first paramater should be the exact position of variable, otherwise the start
