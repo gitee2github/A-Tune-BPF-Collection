@@ -34,6 +34,18 @@ or
 2. 通过`start_readahead_tune`命令启动/加载`readahead_tune.bpf` BPF Program。命令使用方法可以使用`start_readahead_tune -h|--help`帮助命令。
 3. 通过`stop_readahead_tune`命令停止/卸载`readahead_tune.bpf` BPF Program。
 
+#### 源码编译
+1. 安装编译依赖：
+```bash
+sudo dnf install make clang llvm libbpf-devel dwarves kernel-debuginfo bpftool -y
+```
+2. 编译:
+```bash
+make
+```
+
+编译过程中可能遇到`kenrl-debuginfo`rpm包提供vmlinux路径与`uname -r`不一致的情况导致编译失败。这是由于当前运行的内核版本与`kernel-debuginfo`的版本不一致。openEuler yum源的kernel版本较高，可以执行`dnf update kernel`升级当前kernel到yum源的kernel版本，重启系统，kernel版本便与`kernel-debuginfo`版本一致，再重新编译。
+
 #### 参与贡献
 
 1.  Fork 本仓库
