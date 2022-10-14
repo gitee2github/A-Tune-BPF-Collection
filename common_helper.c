@@ -31,6 +31,7 @@ static struct opt *new_opt(char *name, char *val)
     return opt;
 }
 
+/* alloc option hash table */
 struct opt **parse_init(unsigned int size)
 {
     struct opt **opts = (struct opt **)malloc(size * sizeof(struct opt *));
@@ -39,6 +40,7 @@ struct opt **parse_init(unsigned int size)
     return opts;
 }
 
+/* free option hash table and inside options */
 void parse_fini(struct opt **opts, unsigned int size)
 {
     if (!opts) {
@@ -47,9 +49,15 @@ void parse_fini(struct opt **opts, unsigned int size)
 
     for (unsigned int i = 0; i < size; i++) {
         if (opts[i] != NULL) {
-            free_opt(opts[i]);
+            struct opt *opt = opts[i];
+            while (opt) {
+                struct opt *next_opt = opt->next;
+                free_opt(opt);
+                opt = next_opt;
+            }
         }
     }
+    free(opts);
 }
 
 static int empty(char *s)
@@ -86,6 +94,13 @@ static unsigned hash(const char *str, unsigned int size)
     return hash % size;
 }
 
+/*
+ * parse config file by key-value way from config file, the result will be added to option hash table
+ * @where: where the log output
+ * @conf_fn: config file name
+ * @opts: option hash table(option pointer array)
+ * @size: option hash table size
+ */
 int parse_config_file(unsigned int where, const char *conf_fn, struct opt **opts, unsigned int size)
 {
     char *line = NULL;
@@ -142,6 +157,7 @@ ret:
     return ret;
 }
 
+/* get config value string by config name */
 char* config_opt(struct opt **opts, unsigned int size, const char *name)
 {
     unsigned int h = hash(name, size);
