@@ -1,0 +1,7 @@
+# Test comments
+      space_integer = 23  
+      space_float = 3.1415926       
+no_space_str=hello world
+space_str = hello world 
+     empty_field =  
+

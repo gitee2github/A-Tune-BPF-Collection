@@ -2,6 +2,7 @@
 #define _COMMON_HELPER_H
 
 #include <syslog.h>
+#include <stdio.h>
 
 #define SHASH 11
 #define SYSLOG  (1 << 0)
