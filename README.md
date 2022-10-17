@@ -46,6 +46,27 @@ make
 
 编译过程中可能遇到`kenrl-debuginfo`rpm包提供vmlinux路径与`uname -r`不一致的情况导致编译失败。这是由于当前运行的内核版本与`kernel-debuginfo`的版本不一致。openEuler yum源的kernel版本较高，可以执行`dnf update kernel`升级当前kernel到yum源的kernel版本，重启系统，kernel版本便与`kernel-debuginfo`版本一致，再重新编译。
 
+#### 测试
+##### 执行测试用例
+```bash
+make check
+```
+执行测试用例依赖于源码构建，会自动编译。测试用例运行结果信息示例如下所示:
+```bash
+   CHECK
+    PASS: tst-common_helper
+    Test Summary:
+      Unsupport: 0
+      Fail: 0
+      Pass: 1
+```
+会显示每个测试用例的执行结果，如`tst-common_helper`测试用例执行成功。最后以`Test Summary:`行开头总结所有测试用例执行情况。`Unsupport`表示不支持在当前测试平台上运行的测试用例数目，`Fail`表示失败的测试用例数目，`Pass`表示成功的测试用例数目。
+
+##### 新增测试用例
+如果要新增对源码中目标文件中的函数进行测试，则在`test`目录下新增前缀为`tst-`，后半部分与测试目标文件名一致的测试文件。如要对`common_helper.c`中的函数进行测试，则新建名为`tst-common_helper.c`的测试文件。
+
+测试文件中的测试用例定义在`int do_test(void)`函数中，测试用例首先应该检查能否在测试平台上进行运行，如果不支持，则返回2(unsupport)；测试用例运行失败返回1(fail)；成功则返回0(pass)。在测试文件结尾添加`#include "test/test-driver.c"`语句即可。
+
 #### 参与贡献
 
 1.  Fork 本仓库

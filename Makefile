@@ -6,6 +6,7 @@ PAHOLE ?= pahole
 READELF ?= readelf
 VMLINUX ?= /usr/lib/debug/lib/modules/`uname -r`/vmlinux
 VMLINUX_HEADER ?= $(OUTPUT)/vmlinux.h
+MAKE ?= make
 
 BTF_PAHOLE_PROBE := $(shell $(READELF) -S $(VMLINUX) | grep .BTF 2>&1)
 INCLUDES := -I$(OUTPUT)
@@ -39,10 +40,17 @@ all: $(APPS)
 debug: DEBUG_FLAGS = -DBPFDEBUG
 debug: all
 
+export CFLAGS OUTPUT Q
 .PHONY: clean
 clean:
 	$(call msg,CLEAN)
 	$(Q)rm -rf $(OUTPUT) $(APPS) $(patsubst %,%.bpf.o,$(APPS))
+	$(Q)$(MAKE) -C test clean
+
+.PHONY: check
+check: all
+	$(call msg, CHECK)
+	$(Q)$(MAKE) -C test
 
 $(OUTPUT):
 	$(call msg,MKDIR,$@)
